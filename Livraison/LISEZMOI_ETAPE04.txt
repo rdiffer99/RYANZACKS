@@ -1,0 +1,201 @@
+﻿ÉTAPE 04 — SYSTÈME DE QUÊTES (__ZCK_QUEST)
+===========================================
+
+Ce zip contient TOUS les fichiers créés ou modifiés par l'étape 04, rangés
+dans l'arborescence du projet :
+  Source\          dossier des sources, celui qui contient FlyFF.sln
+                   (SourceFNL dans le dépôt GitHub) ;
+  Resource\        dossier Resource ;
+  Script & Table\  scripts SQL, à côté des scripts 1 à 11 existants.
+Copier le contenu du dossier ETAPE04_ZCK_QUEST par-dessus ces dossiers en
+acceptant le remplacement. Aucun autre fichier du projet n'est touché.
+
+Chaque fichier modifié garde son encodage et ses fins de ligne d'origine
+(cp1252 reste cp1252, CRLF reste CRLF, Resource en UTF-16 LE avec BOM...).
+_Interface\FuncTextCmd.cpp garde son BOM UTF-8 (CustomCommon.h désactive
+C4566 pour ce fichier). Les nouveaux fichiers C++ sont en ASCII pur (accents
+en séquences octales \351...), CRLF.
+
+
+1. INSTALLATION (dans cet ordre)
+--------------------------------
+
+ORDRE OBLIGATOIRE : 1.1 (SQL) AVANT de lancer les nouveaux exécutables.
+Le nouveau DatabaseServer envoie toujours le paramètre @im_szZckQuest à
+CHARACTER_STR (comme pour les autres colonnes Zck) : avec l'ancienne procédure,
+SQL Server répond "trop d'arguments" et AUCUN personnage n'est plus sauvegardé.
+
+1.1 Base de données (SQL Server Management Studio)
+    a) Exécuter Script & Table\12.CHARACTER_TBL_ZCK_QUEST.sql
+       -> ajoute CHARACTER_TBL.m_szZckQuest VARCHAR(MAX) NOT NULL default '$'.
+    b) Exécuter Script & Table\CHARACTER_STR.txt (ALTER PROC [dbo].[CHARACTER_STR]).
+       C'est EXACTEMENT la procédure fournie, avec 10 lignes ajoutées,
+       toutes marquées "-- __ZCK_QUEST" :
+         - nouveau dernier paramètre @im_szZckQuest VARCHAR(MAX) = NULL ;
+         - S8 : , ISNULL(A.m_szZckQuest, '$') AS m_szZckQuest ;
+         - U1 : , m_szZckQuest = ISNULL(@im_szZckQuest, ISNULL(m_szZckQuest, '$')) ;
+         - I1 : colonne m_szZckQuest, valeur '$'.
+       Rien d'autre n'a changé dans la procédure.
+       L'ALTER PROC exige que la colonne existe : a) avant b).
+    Contrôle : au premier chargement d'un personnage, le journal d'erreurs du
+    DatabaseServer ne doit contenir aucune ligne "m_szZckQuest".
+
+1.2 Sources : copier Source\ puis recompiler Neuz, WorldServer ET
+    DatabaseServer (les trois projets ont reçu ZckQuest.cpp / ZckQuest.h ;
+    Neuz a aussi WndZckQuest.cpp / WndZckQuest.h).
+
+1.3 Ressources
+    Serveur (dossier Resource du WorldServer) :
+      ZckQuetes.inc   (nouveau : configuration des quêtes, lu par le WorldServer seul)
+      ZckPrestige.inc (nRequiredLevel = 180)
+      defineJob.h     (niveaux 160 / 185)
+    Client (à remettre dans Data.res) :
+      resdata.inc, resData.txt.txt, ResData.h (fenêtres APP_ZCK_QUEST et
+      APP_ZCK_QUEST_SUIVI), defineJob.h, ZckPrestige.inc.
+    IMPORTANT : ZckPrestige.inc est lu au démarrage par le client ET le
+    WorldServer. Les nouveaux exécutables refusent nRequiredLevel au-delà de
+    185 : l'ancien fichier (200) les empêcherait de démarrer. Mettre à jour
+    ZckPrestige.inc en même temps que les exécutables (serveur et Data.res).
+    Les ressources du client ne contiennent pas ZckQuetes.inc : le client
+    reçoit la liste des quêtes du WorldServer.
+
+
+2. CONFIGURATION : Resource\ZckQuetes.inc
+-----------------------------------------
+Toutes les clés sont décrites en tête du fichier. En résumé, par quête :
+  Nom, Description, Categorie, Lieu ;
+  Monde WI_...            (une ligne par monde, ex. WI_WORLD_MADRIGAL, WI_WORLD_EDEN ;
+                           aucune ligne = tous les mondes) ;
+  HeureDebut HH:MM / HeureFin HH:MM (heure locale du WorldServer ; 22:00 à 02:00
+                           passe minuit ; 00:00 à 24:00 = toute la journée) ;
+  Jours { 1 ... 7 }       (1 = dimanche ... 7 = samedi ; absent = tous les jours) ;
+  Duree n                 (minutes après l'acceptation, 0 = jusqu'à la fin de l'horaire) ;
+  NiveauMin / NiveauMax, PrestigeMin / PrestigeMax ;
+  Objectif n, Groupe 0|1 ;
+  Monstres { MI_... MI_... }   (plusieurs monstres pour la même quête) ;
+  Recompenses { Objet II_... n lie ; Buff II_... ; Penya n ; Exp n ; ExpPourcent n }.
+Récompense par DwID : Objet II_JETON_BOUTIQUE_EN_LIGNE 1 1 (exemple fourni).
+Buff : tout objet IK2_BUFF de propItem (power-up), posé comme si l'objet était
+utilisé (exemples : II_SYS_SYS_SCR_ATTACKSPEED, II_SYS_SYS_SCR_CHANCECRITICAL).
+
+ATTENTION : MI_AIBATT n'existe pas dans defineObj.h. Les Aibatts sont
+MI_AIBATT1 à MI_AIBATT6 ; l'exemple utilise MI_AIBATT1 à MI_AIBATT4.
+
+Un fichier invalide n'est jamais appliqué, même en partie : la raison exacte
+(ligne, quête, clé) est écrite dans le journal d'erreurs du WorldServer et les
+quêtes déjà en service restent actives. Chaque identifiant est vérifié
+(World.inc, propMover, propItem, règles des buffs, place en inventaire).
+
+Recharger sans redémarrer : /quete recharger (administrateur). Le nouveau
+catalogue part aussitôt à tous les joueurs connectés.
+
+
+3. EN JEU
+---------
+  /quete (ou /quetes, /quest) : journal des quêtes.
+  /quete suivi                : affiche ou masque le suivi à l'écran.
+  Menu de la barre des tâches : "Quêtes" ; touche configurable dans l'onglet Touches.
+  Administration : /quete recharger, /quete reinitialiser (efface ses propres quêtes, pour les essais).
+
+Journal (APP_ZCK_QUEST) :
+  - redimensionnable par ses bords jusqu'à l'écran entier, bouton Agrandir /
+    Restaurer ; position et taille gardées entre deux sessions ;
+  - onglets Toutes, Disponibles, En cours, À récupérer, Accomplies ;
+  - détail : statut, description, conditions (horaire, jours, durée, niveau,
+    prestige, groupe, lieu) avec pastilles, objectif, temps restant ou
+    prochaine ouverture, monstres cliquables ;
+  - aperçu 3D du monstre : glisser pour tourner, molette pour zoomer,
+    flèches pour passer d'un monstre à l'autre ;
+  - fiche complète du monstre : PV, attaque, défense, résistance magique,
+    élément (icône), résistances, EXP, comportement, rang, déplacement, rage ;
+  - récompenses : objets et buffs avec infobulle d'objet, Penya, EXP ;
+  - boutons Accepter / Recommencer / Abandonner (deux clics) / Récupérer.
+Suivi à l'écran (APP_ZCK_QUEST_SUIVI) :
+  - quêtes en cours, terminées et échouées (encore ouvertes) : progression et
+    temps restant ; clic = ouvre le journal sur la quête ;
+  - déplaçable par sa barre de titre, redimensionnable par ses bords,
+    réductible à sa barre, masquable (bouton x) ; fond discret hors survol ;
+  - Échap ne le ferme pas ; il s'ouvre seul quand une quête est en cours
+    (si l'option est active) et se ferme quand il n'y a plus rien à suivre ;
+  - options gardées dans neuz.ini : ZckQueteSuivi, ZckQueteSuiviReduit.
+
+
+4. RÈGLES DU SERVEUR (anti-triche, anti-dupe)
+---------------------------------------------
+  - Le client ne nomme qu'une action et une quête, jamais une récompense ;
+    le WorldServer revérifie tout (horaire, niveau, prestige, état, nombre de
+    quêtes en cours, place en inventaire, Penya, buffs, mort, mode égalisé).
+  - Récupération : la quête est marquée récompensée AVANT la remise, puis le
+    personnage est sauvegardé aussitôt : ni double récompense ni perte.
+  - Anti-spam : 300 ms entre deux actions et entre deux demandes de catalogue,
+    2 s entre deux envois du catalogue complet.
+  - Staff bloqué (règle ZckStaffBloque de __ZCK_CUSTOM_UI_CORRECTIF) : ne peut
+    pas récupérer de récompense ; l'administrateur (Développeur) le peut.
+  - Récupération refusée pendant un échange, une boutique personnelle, une
+    pétrification ou un mini-jeu PvP (mêmes interdits que l'utilisation d'un
+    objet, puisque les buffs sont posés comme si l'objet était utilisé).
+  - Deux buffs d'une même catégorie exclusive (potions STR/DEX/INT/STA/DEF,
+    parchemins de défense, etc.) dans une récompense : quête refusée au
+    chargement.
+  - Texte illisible dans m_szZckQuest : quêtes refusées pour ce personnage et
+    colonne conservée (jamais réécrite) ; la commande SQL de remise à zéro est
+    écrite dans le journal d'erreurs du DatabaseServer.
+  - Objectif abaissé par /quete recharger : une tentative en cours qui a déjà
+    assez de monstres passe à "terminée" ; une tentative expirée, jamais.
+  - Groupe 1 : un monstre vaincu compte aussi pour les membres du groupe à
+    moins de 64 m du monstre.
+  - Une récompense terminée ne se perd pas, même après la fin de l'horaire
+    (sauf si la quête est retirée de ZckQuetes.inc ou renumérotée).
+  - Heure de référence : heure locale de la machine du WorldServer.
+  - Paquet 0x88100362, snapshot 0x8980 (valeurs libres vérifiées).
+
+
+5. NIVEAUX ET PRESTIGE (point 4.6)
+----------------------------------
+  defineJob.h : MAX_3RD_LEGEND_LEVEL 160 (passage en 4e classe à 160),
+                MAX_4TH_JOBS_LEVEL 185 (niveau maximum du jeu).
+  ZckPrestige.inc : nRequiredLevel = 180.
+  PROJECT.CPP (LoadZckPrestige) : l'ancienne validation limitait le niveau
+  exigé à MAX_3RD_LEGEND_LEVEL ; avec 160 elle aurait refusé 180 et empêché
+  le démarrage. Elle accepte maintenant jusqu'à MAX_4TH_JOBS_LEVEL (185), et
+  le niveau de réinitialisation reste au plus MAX_GENERAL_LEVEL (120).
+  Conséquences du code existant (inchangé) :
+  - à la connexion, un Héros de 3e classe au-delà de 160 est ramené à 160
+    (il peut alors passer en 4e classe), une 4e classe au-delà de 185 à 185 ;
+  - le prestige à 180 n'est donc accessible qu'en 4e classe (le prestige
+    redescend la lignée jusqu'à la classe Maître, 4e classe comprise) ;
+  - expTable.inc couvre déjà les niveaux 0 à 305 (MAX_EXPCHARACTER 306).
+
+
+6. FICHIERS
+-----------
+Nouveaux :
+  Source\_Common\ZckQuest.h / ZckQuest.cpp       état, catalogue, lecture de ZckQuetes.inc, règles serveur
+  Source\_Interface\WndZckQuest.h / WndZckQuest.cpp  journal et suivi à l'écran
+  Resource\ZckQuetes.inc                         configuration et exemples
+  Script & Table\12.CHARACTER_TBL_ZCK_QUEST.sql  colonne m_szZckQuest
+Modifiés :
+  Script & Table\CHARACTER_STR.txt              paramètre et branches S8 / U1 / I1
+  Resource\defineJob.h, ZckPrestige.inc          niveaux 160 / 185, prestige 180
+  Resource\ResData.h                             APP_ZCK_QUEST 1492, APP_ZCK_QUEST_SUIVI 1493
+  Resource\resdata.inc, resData.txt.txt          blocs et textes des deux fenêtres
+  Source\_Common\CustomCommon.h                  #define __ZCK_QUEST
+  Source\_Common\PROJECT.CPP                     chargement de ZckQuetes.inc, validation du prestige
+  Source\_Common\Mover.h / Mover.cpp             état m_ZckQuest, crédit des monstres (DoDie)
+  Source\_Common\ObjSerializeOpt.cpp             transport de l'état (bloc METHOD_NONE)
+  Source\_Common\HwOption.h / HwOption.cpp       options neuz.ini du suivi
+  Source\_Network\msghdr.h                       PACKETTYPE_ZCK_QUEST, SNAPSHOTTYPE_ZCK_QUEST
+  Source\_Network\Objects\Obj.h / Obj.cpp        état côté DatabaseServer (et copie du mover)
+  Source\_Database\DbManagerFun.cpp              lecture de m_szZckQuest
+  Source\_Database\DbManagerSave.cpp             écriture de @im_szZckQuest (NULL si non chargée)
+  Source\WorldServer\DPSrvr.h / DPSrvr.cpp       réception du paquet
+  Source\Neuz\DPClient.h / DPClient.cpp          envoi, réception, demande du catalogue à l'entrée en jeu
+  Source\Neuz\ZckImGui.cpp                       __ZCK_QUEST dans l'onglet des systèmes compilés
+  Source\_Interface\FuncTextCmd.cpp              commande /quete
+  Source\_Interface\FuncApplet.cpp               enregistrement des deux fenêtres
+  Source\_Interface\WndTaskBar.cpp               entrée "Quêtes" du menu
+  Source\_Interface\ZckChangementTouche.cpp      touche configurable
+  Source\_Interface\WndBase.cpp                  Échap ne ferme pas le suivi
+  Source\Neuz, WorldServer, DatabaseServer : *.vcxproj et *.vcxproj.filters
+ETAPE04_modifications.diff : toutes les modifications, pour relecture
+(affichage UTF-8 ; les fichiers eux-mêmes sont dans leur encodage d'origine).
